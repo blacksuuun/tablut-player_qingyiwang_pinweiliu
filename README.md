@@ -35,11 +35,18 @@ used in the competition):
 
 ## Test locally with the official server
 
+One command (starts the server, our player and the official random player
+in the right order; white always connects first):
+
 ```bash
-# terminal 1
-java -jar TablutCompetition/Tablut/Executables/Server.jar
-# terminal 2
-./runmyplayer.sh white 60 127.0.0.1 --verbose
-# terminal 3
-java -jar TablutCompetition/Tablut/Executables/RandomPlayer.jar black 60 127.0.0.1
+tests/local_game.sh white 10    # we play WHITE, 10 s per move
+tests/local_game.sh black 10    # we play BLACK
+```
+
+Or manually, in three terminals (start order: server, WHITE, BLACK):
+
+```bash
+java -jar ~/TablutCompetition/Tablut/Executables/Server.jar
+./runmyplayer.sh white 10 127.0.0.1 --verbose
+java -jar ~/TablutCompetition/Tablut/Executables/RandomPlayer.jar black 10 127.0.0.1
 ```
