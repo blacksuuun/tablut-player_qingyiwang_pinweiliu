@@ -25,7 +25,7 @@ import time
 import rules
 from search import Searcher
 
-DEFAULT_NAME = "PyTablutAB"
+DEFAULT_NAME = "aBC4"
 WHITE_PORT = 5800
 BLACK_PORT = 5801
 

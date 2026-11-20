@@ -1,4 +1,4 @@
-# PyTablutAB – Tablut Challenge 2026/27 player
+# aBC4 – Tablut Challenge 2026/27 player
 
 Python 3 agent for the UniBo *Fundamentals of AI and Knowledge Representation*
 Tablut Challenge (Ashton rules). Pure standard library, no dependencies.
@@ -19,7 +19,7 @@ used in the competition):
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--name NAME` | `PyTablutAB` | name sent to the server |
+| `--name NAME` | `aBC4` | name sent to the server |
 | `--margin SEC` | `0.12*timeout + 1.5` | safety margin subtracted from the timeout |
 | `--verbose` | off | print search info to stderr (off by default: no disk usage) |
 
@@ -28,10 +28,10 @@ used in the competition):
 | File | Role |
 |---|---|
 | `rules.py` | board (81-cell `bytearray`), Ashton move generation, captures (throne/camps special cases), win detection, JSON conversion. All game rules live here, so a variant (Brandubh, classic Tablut) only needs changes in this module. |
-| `evaluation.py` | heuristic: material, king's free lines to the border (2+ lines = unstoppable), king mobility, attackers around the king, distance from the throne, black pawns on key blocking squares. |
+| `evaluation.py` | side-to-move-aware heuristic: immediate threats (king escape next move, king capture next move, 2+ free lines = unstoppable), material, "two-step" escape squares, king mobility, attackers around the king, distance from the throne, black pawns on key blocking squares. |
 | `search.py` | iterative-deepening negamax alpha-beta with transposition table, move ordering (TT move, captures, king escapes, history heuristic), repetition = draw, hard time limit (best move of the last finished depth is always available). |
 | `player.py` | TCP client (4-byte big-endian length + UTF-8 JSON, ports 5800/5801), game loop. |
-| `tests/` | offline tests: `selfplay.py` (vs random / self-play), `fake_server.py` (protocol test). |
+| `tests/` | offline tests: `selfplay.py` (vs random / self-play), `match.py` (new vs old evaluation, both colours, used to validate every change), `fake_server.py` (protocol test). |
 
 ## Test locally with the official server
 

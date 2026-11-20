@@ -22,7 +22,8 @@ class TimeUp(Exception):
 
 
 class Searcher:
-    def __init__(self, max_depth=64, verbose=False):
+    def __init__(self, max_depth=64, verbose=False, eval_fn=None):
+        self.evaluate = eval_fn or evaluate
         self.max_depth = max_depth
         self.verbose = verbose
         self.tt = {}
@@ -111,13 +112,13 @@ class Searcher:
         if (self.nodes & 1023) == 0 and time.time() > self.deadline:
             raise TimeUp()
 
+        if depth <= 0:
+            v = self.evaluate(board, turn)
+            return v if turn == WHITE_TURN else -v
+
         key = position_key(board, turn)
         if key in self.seen:
             return 0  # repetition = draw
-
-        if depth <= 0:
-            v = evaluate(board)
-            return v if turn == WHITE_TURN else -v
 
         alpha_orig = alpha
         tt_move = None
@@ -173,31 +174,37 @@ class Searcher:
 
     # ------------------------------------------------------------------
     def _order(self, board, turn, moves, tt_move):
-        hist = self.history
-        scored = []
+        hist_get = self.history.get
         white = turn == WHITE_TURN
+        enemy = BLACK if white else WHITE
+        is_camp = IS_CAMP
+        is_edge = IS_EDGE
+        neigh2 = NEIGH2
+        scored = []
+        append = scored.append
         for m in moves:
             s, t = m
-            sc = hist.get(m, 0)
+            sc = hist_get(m, 0)
             if m == tt_move:
-                sc += 10 ** 8
-            if white and board[s] == KING:
-                sc += 5000
-                if IS_EDGE[t]:
-                    sc += 10 ** 7
-            # quick capture detection
-            enemy = BLACK if white else WHITE
-            for n, beyond in NEIGH2[t]:
-                if board[n] == enemy and beyond >= 0 and beyond != s:
-                    bv = board[beyond]
-                    if white:
-                        if bv == WHITE or bv == KING or beyond == THRONE or IS_CAMP[beyond]:
+                sc += 100000000
+            if white:
+                if board[s] == KING:
+                    sc += 5000
+                    if is_edge[t]:
+                        sc += 10000000
+                for n, beyond in neigh2[t]:
+                    if board[n] == BLACK and beyond >= 0 and beyond != s:
+                        bv = board[beyond]
+                        if bv == WHITE or bv == KING or beyond == THRONE or is_camp[beyond]:
                             sc += 100000
-                    else:
-                        if bv == BLACK or beyond == THRONE or IS_CAMP[beyond]:
+            else:
+                for n, beyond in neigh2[t]:
+                    v = board[n]
+                    if v == WHITE:
+                        if beyond >= 0 and beyond != s and (board[beyond] == BLACK or beyond == THRONE or is_camp[beyond]):
                             sc += 100000
-                elif not white and board[n] == KING:
-                    sc += 3000  # attacking the king
-            scored.append((sc, m))
-        scored.sort(key=lambda x: -x[0])
+                    elif v == KING:
+                        sc += 3000
+            append((sc, m))
+        scored.sort(reverse=True)
         return [m for _, m in scored]
