@@ -12,17 +12,19 @@ This works as a cheap "quiescence" check against the horizon effect.
 from rules import (EMPTY, WHITE, BLACK, KING, SIZE, THRONE, IS_CAMP, RAYS,
                    NEIGH, NEAR_THRONE, WHITE_TURN, idx)
 
-# ---- weights (tunable) ----
-W_WHITE_PIECE = 90       # value of each white soldier
-W_BLACK_PIECE = 50       # value of each black soldier
-W_ONE_ROUTE_BLACK_TO_MOVE = 300   # black is forced to block
-W_TWO_STEP_ESCAPE = 40   # each square from where the king could escape next
-W_FORK_SQUARE = 3000     # king can reach a square with 2+ free lines
-W_CAPTURE_THREAT = 250   # black threatens to capture the king next move
-W_KING_ATTACKER = 70     # each black pawn / camp next to the king
-W_KING_MOBILITY = 4      # each square the king can reach
-W_KING_FROM_CENTER = 10  # per step of king distance from the throne
-W_BLACK_BLOCKER = 30     # black pawn on a key blocking square
+# ---- weights (tunable; tests/evolve.py searches for better values) ----
+DEFAULT_WEIGHTS = {
+    'white_piece': 90,          # value of each white soldier
+    'black_piece': 50,          # value of each black soldier
+    'one_route_black_to_move': 300,  # black is forced to block
+    'two_step_escape': 40,      # each square from where the king could escape next
+    'fork_square': 3000,        # king can reach a square with 2+ free lines
+    'capture_threat': 250,      # black threatens to capture the king next move
+    'king_attacker': 70,        # each black pawn / camp next to the king
+    'king_mobility': 4,         # each square the king can reach
+    'king_from_center': 10,     # per step of king distance from the throne
+    'black_blocker': 30,        # black pawn on a key blocking square
+}
 NEAR_WIN = 90000         # static score for a position that is won next move
 
 # Squares diagonal to the corners' approach: black pawns here seal escapes
@@ -95,61 +97,82 @@ def black_capture_threat(board, k):
     return False
 
 
-def evaluate(board, turn=WHITE_TURN):
-    k = board.find(KING)
-    if k < 0:
-        return -NEAR_WIN
+def make_evaluate(weights=None):
+    """Build an evaluation function with the given weights (dict)."""
+    w = dict(DEFAULT_WEIGHTS)
+    if weights:
+        w.update(weights)
+    W_WHITE_PIECE = w['white_piece']
+    W_BLACK_PIECE = w['black_piece']
+    W_ONE_ROUTE_BLACK_TO_MOVE = w['one_route_black_to_move']
+    W_TWO_STEP_ESCAPE = w['two_step_escape']
+    W_FORK_SQUARE = w['fork_square']
+    W_CAPTURE_THREAT = w['capture_threat']
+    W_KING_ATTACKER = w['king_attacker']
+    W_KING_MOBILITY = w['king_mobility']
+    W_KING_FROM_CENTER = w['king_from_center']
+    W_BLACK_BLOCKER = w['black_blocker']
 
-    routes = _free_routes(board, k)
-    if turn == WHITE_TURN:
-        if routes >= 1:
-            return NEAR_WIN
-    else:
-        if black_capture_threat(board, k):
+    def evaluate(board, turn=WHITE_TURN):
+        k = board.find(KING)
+        if k < 0:
             return -NEAR_WIN
-        if routes >= 2:
-            return NEAR_WIN - 1000
 
-    n_white = board.count(WHITE)
-    n_black = board.count(BLACK)
-    score = W_WHITE_PIECE * n_white - W_BLACK_PIECE * n_black
+        routes = _free_routes(board, k)
+        if turn == WHITE_TURN:
+            if routes >= 1:
+                return NEAR_WIN
+        else:
+            if black_capture_threat(board, k):
+                return -NEAR_WIN
+            if routes >= 2:
+                return NEAR_WIN - 1000
 
-    if turn != WHITE_TURN and routes == 1:
-        score += W_ONE_ROUTE_BLACK_TO_MOVE
+        n_white = board.count(WHITE)
+        n_black = board.count(BLACK)
+        score = W_WHITE_PIECE * n_white - W_BLACK_PIECE * n_black
 
-    # king mobility and "two-step" escape squares
-    mobility = 0
-    escape_squares = 0
-    fork = False
-    for ray in RAYS[k]:
-        for t in ray:
-            if t == THRONE or board[t] != EMPTY or IS_CAMP[t]:
-                break
-            mobility += 1
-            r = _free_routes(board, t, ignore=k)
-            if r:
-                escape_squares += 1
-                if r >= 2:
-                    fork = True
-    score += W_KING_MOBILITY * mobility + W_TWO_STEP_ESCAPE * escape_squares
-    if fork and turn == WHITE_TURN:
-        score += W_FORK_SQUARE
+        if turn != WHITE_TURN and routes == 1:
+            score += W_ONE_ROUTE_BLACK_TO_MOVE
 
-    if turn == WHITE_TURN and black_capture_threat(board, k):
-        score -= W_CAPTURE_THREAT
+        # king mobility and "two-step" escape squares
+        mobility = 0
+        escape_squares = 0
+        fork = False
+        for ray in RAYS[k]:
+            for t in ray:
+                if t == THRONE or board[t] != EMPTY or IS_CAMP[t]:
+                    break
+                mobility += 1
+                r = _free_routes(board, t, ignore=k)
+                if r:
+                    escape_squares += 1
+                    if r >= 2:
+                        fork = True
+        score += W_KING_MOBILITY * mobility + W_TWO_STEP_ESCAPE * escape_squares
+        if fork and turn == WHITE_TURN:
+            score += W_FORK_SQUARE
 
-    att = 0
-    for n in NEIGH[k]:
-        if board[n] == BLACK or IS_CAMP[n]:
-            att += 1
-    score -= W_KING_ATTACKER * att
+        if turn == WHITE_TURN and black_capture_threat(board, k):
+            score -= W_CAPTURE_THREAT
 
-    kr, kc = divmod(k, SIZE)
-    score += W_KING_FROM_CENTER * (abs(kr - 4) + abs(kc - 4))
+        att = 0
+        for n in NEIGH[k]:
+            if board[n] == BLACK or IS_CAMP[n]:
+                att += 1
+        score -= W_KING_ATTACKER * att
 
-    blockers = 0
-    for b in BLOCKERS:
-        if board[b] == BLACK:
-            blockers += 1
-    score -= W_BLACK_BLOCKER * blockers
-    return score
+        kr, kc = divmod(k, SIZE)
+        score += W_KING_FROM_CENTER * (abs(kr - 4) + abs(kc - 4))
+
+        blockers = 0
+        for b in BLOCKERS:
+            if board[b] == BLACK:
+                blockers += 1
+        score -= W_BLACK_BLOCKER * blockers
+        return score
+
+    return evaluate
+
+
+evaluate = make_evaluate()

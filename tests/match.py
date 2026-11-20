@@ -1,7 +1,12 @@
 """
 Engine-vs-engine match to measure whether a change is an improvement.
 
-  python3 tests/match.py [n_openings] [budget_seconds] [workers]
+  python3 tests/match.py [n_openings] [budget_seconds] [workers] [--set key=value ...] [--depth D]
+
+  --set     override evaluation weights of the NEW player for this match only,
+            e.g.  --set king_attacker=100 black_blocker=50
+            (names: see DEFAULT_WEIGHTS in evaluation.py)
+  --depth   fixed search depth instead of a time budget (reproducible results)
 
 Plays NEW (the current code in the repository root: search.py +
 evaluation.py) against OLD, a frozen copy of a previous version stored in
@@ -25,6 +30,7 @@ sys.path.insert(0, HERE)
 import importlib
 import rules as R
 from search import Searcher as NewSearcher
+from evaluation import DEFAULT_WEIGHTS, make_evaluate
 
 OLD_NAME = os.environ.get('OLD', 'v2')
 OldSearcher = importlib.import_module('baselines.%s.search' % OLD_NAME).Searcher
@@ -42,10 +48,13 @@ def make_opening(seed, plies=2):
 
 
 def play(args):
-    seed, new_is_white, budget = args
+    seed, new_is_white, budget, overrides, depth = args
     board, turn = make_opening(seed)
-    new = NewSearcher()
-    old = OldSearcher()
+    max_depth = depth if depth else 64
+    if depth:
+        budget = 10 ** 6  # depth limit, not time, stops the search
+    new = NewSearcher(max_depth=max_depth, eval_fn=make_evaluate(overrides))
+    old = OldSearcher(max_depth=max_depth)
     players = {R.WHITE_TURN: new if new_is_white else old,
                R.BLACK_TURN: old if new_is_white else new}
     seen = {R.position_key(board, turn)}
@@ -75,13 +84,32 @@ def play(args):
     return seed, new_is_white, result, ply + 1, new_score
 
 
+def parse_cli(argv):
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument('n', nargs='?', type=int, default=8)
+    p.add_argument('budget', nargs='?', type=float, default=0.3)
+    p.add_argument('workers', nargs='?', type=int, default=2)
+    p.add_argument('--set', nargs='*', default=[], metavar='KEY=VALUE')
+    p.add_argument('--depth', type=int, default=0)
+    a = p.parse_args(argv)
+    overrides = {}
+    for item in a.set:
+        k, v = item.split('=')
+        if k not in DEFAULT_WEIGHTS:
+            p.error("unknown weight %r; valid: %s" % (k, ', '.join(sorted(DEFAULT_WEIGHTS))))
+        overrides[k] = float(v)
+    return a, overrides
+
+
 if __name__ == '__main__':
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 6
-    budget = float(sys.argv[2]) if len(sys.argv) > 2 else 0.3
-    workers = int(sys.argv[3]) if len(sys.argv) > 3 else 2
-    jobs = [(s, w, budget) for s in range(n) for w in (True, False)]
+    a, overrides = parse_cli(sys.argv[1:])
+    n, budget, workers = a.n, a.budget, a.workers
+    jobs = [(s, w, budget, overrides, a.depth) for s in range(n) for w in (True, False)]
     total = 0.0
     as_white = as_black = 0.0
+    print("NEW weights changed:", overrides or "none",
+          "| search:", ("depth %d" % a.depth) if a.depth else ("%.2fs per move" % budget), flush=True)
     with Pool(workers) as pool:
         for seed, nw, result, plies, sc in pool.imap_unordered(play, jobs):
             total += sc
