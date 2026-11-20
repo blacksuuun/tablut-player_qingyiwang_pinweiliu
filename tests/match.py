@@ -3,7 +3,13 @@ Engine-vs-engine match to measure whether a change is an improvement.
 
   python3 tests/match.py [n_openings] [budget_seconds] [workers]
 
-Plays NEW (current evaluation.py) against OLD (tests/eval_v1.py).
+Plays NEW (the current code in the repository root: search.py +
+evaluation.py) against OLD, a frozen copy of a previous version stored in
+baselines/<name>/ (default: baselines/v2). Choose another baseline with
+the environment variable OLD, e.g.  OLD=v2 python3 tests/match.py 8 0.3
+To freeze a new baseline, copy rules.py, evaluation.py and search.py into
+baselines/<name>/ and make their imports relative (from .rules import ...).
+
 Each opening (2 random plies from the start position) is played twice,
 swapping colours, so the result is fair. Win = 1, draw = 0.5.
 """
@@ -16,11 +22,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
 sys.path.insert(0, HERE)
 
-import rules as R
-from search import Searcher
-import evaluation as eval_new
 import importlib
-eval_old = importlib.import_module(os.environ.get('OLD', 'eval_v1'))
+import rules as R
+from search import Searcher as NewSearcher
+
+OLD_NAME = os.environ.get('OLD', 'v2')
+OldSearcher = importlib.import_module('baselines.%s.search' % OLD_NAME).Searcher
 
 MAX_PLIES = 160
 
@@ -37,8 +44,8 @@ def make_opening(seed, plies=2):
 def play(args):
     seed, new_is_white, budget = args
     board, turn = make_opening(seed)
-    new = Searcher(eval_fn=eval_new.evaluate)
-    old = Searcher(eval_fn=eval_old.evaluate)
+    new = NewSearcher()
+    old = OldSearcher()
     players = {R.WHITE_TURN: new if new_is_white else old,
                R.BLACK_TURN: old if new_is_white else new}
     seen = {R.position_key(board, turn)}
@@ -84,5 +91,6 @@ if __name__ == '__main__':
                 as_black += sc
             print("opening %2d NEW as %s: %-8s in %3d plies -> %.1f" % (
                 seed, 'WHITE' if nw else 'BLACK', result, plies, sc), flush=True)
+    print("NEW vs baseline %s" % OLD_NAME)
     print("NEW score: %.1f / %d  (as white %.1f/%d, as black %.1f/%d)" % (
         total, len(jobs), as_white, n, as_black, n))

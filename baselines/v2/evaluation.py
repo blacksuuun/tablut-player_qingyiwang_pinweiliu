@@ -9,7 +9,7 @@ seen at the leaves of the search are scored correctly:
   * Black to move and the king has 2+ free lines -> Black cannot block both.
 This works as a cheap "quiescence" check against the horizon effect.
 """
-from rules import (EMPTY, WHITE, BLACK, KING, SIZE, THRONE, IS_CAMP, RAYS,
+from .rules import (EMPTY, WHITE, BLACK, KING, SIZE, THRONE, IS_CAMP, RAYS,
                    NEIGH, NEAR_THRONE, WHITE_TURN, idx)
 
 # ---- weights (tunable) ----
