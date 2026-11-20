@@ -14,13 +14,13 @@ from rules import (EMPTY, WHITE, BLACK, KING, SIZE, THRONE, IS_CAMP, RAYS,
 
 # ---- weights (tunable; tests/evolve.py searches for better values) ----
 DEFAULT_WEIGHTS = {
-    'white_piece': 90,          # value of each white soldier
+    'white_piece': 120,         # value of each white soldier
     'black_piece': 50,          # value of each black soldier
     'one_route_black_to_move': 300,  # black is forced to block
-    'two_step_escape': 40,      # each square from where the king could escape next
+    'two_step_escape': 20,      # each square from where the king could escape next
     'fork_square': 3000,        # king can reach a square with 2+ free lines
     'capture_threat': 250,      # black threatens to capture the king next move
-    'king_attacker': 70,        # each black pawn / camp next to the king
+    'king_attacker': 120,       # each black pawn / camp next to the king
     'king_mobility': 4,         # each square the king can reach
     'king_from_center': 10,     # per step of king distance from the throne
     'black_blocker': 30,        # black pawn on a key blocking square

@@ -50,3 +50,28 @@ java -jar ~/TablutCompetition/Tablut/Executables/Server.jar
 ./runmyplayer.sh white 10 127.0.0.1 --verbose
 java -jar ~/TablutCompetition/Tablut/Executables/RandomPlayer.jar black 10 127.0.0.1
 ```
+
+## Tuning log (evaluation weights)
+
+Method: `tests/match.py` plays the current code against a frozen baseline,
+40 games per test (20 openings x both colours), fixed depth 3 (reproducible);
+promising settings are re-checked on 40 openings and with a time budget.
+Reference when both sides are equal: 20/40 (white 8/20, black 12/20 - Ashton
+rules favour Black).
+
+| Change vs v2 | Score /40 |
+|---|---|
+| king_attacker 40 / 120 | 15.5 / 21.0 |
+| black_blocker 15 / 60 | 21.0 / 18.0 |
+| two_step_escape 20 / 80 | 23.5 / 13.5 |
+| white_piece 70 / 120 | 15.5 / 21.5 |
+| two_step_escape 10 / 30 | 24.0 / 21.0 |
+| king_attacker 160 | 21.5 |
+| white_piece 150 | 23.0 |
+| tse 20 + white_piece 120 | 25.0 |
+| **tse 20 + white_piece 120 + king_attacker 120 (= v3)** | **26.0** |
+| v3 + black_blocker 15 | 24.5 |
+| tse 10 + wp 120 + ka 120 | 20.5 |
+| tse 15 + wp 150 + ka 120 | 19.5 |
+
+v3 validation: 51/80 on 40 openings (depth 3), 14/24 with 0.3 s per move.

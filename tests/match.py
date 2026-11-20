@@ -10,7 +10,7 @@ Engine-vs-engine match to measure whether a change is an improvement.
 
 Plays NEW (the current code in the repository root: search.py +
 evaluation.py) against OLD, a frozen copy of a previous version stored in
-baselines/<name>/ (default: baselines/v2). Choose another baseline with
+baselines/<name>/ (default: baselines/v3). Choose another baseline with
 the environment variable OLD, e.g.  OLD=v2 python3 tests/match.py 8 0.3
 To freeze a new baseline, copy rules.py, evaluation.py and search.py into
 baselines/<name>/ and make their imports relative (from .rules import ...).
@@ -32,7 +32,7 @@ import rules as R
 from search import Searcher as NewSearcher
 from evaluation import DEFAULT_WEIGHTS, make_evaluate
 
-OLD_NAME = os.environ.get('OLD', 'v2')
+OLD_NAME = os.environ.get('OLD', 'v3')
 OldSearcher = importlib.import_module('baselines.%s.search' % OLD_NAME).Searcher
 
 MAX_PLIES = 160

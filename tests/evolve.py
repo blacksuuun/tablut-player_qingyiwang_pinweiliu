@@ -3,7 +3,7 @@ Evolutionary tuning of the evaluation weights.
 
 Genome  : the weights of evaluation.DEFAULT_WEIGHTS
 Fitness : score (win 1, draw 0.5) of the individual against the frozen
-          baseline (baselines/v2) over several openings, both colours.
+          baseline (baselines/v3 by default, env OLD=...) over several openings, both colours.
           Fixed-depth search is used so that results are reproducible and
           independent of CPU load.
 Algorithm: elitist GA - keep the best `elite` individuals, fill the rest of
@@ -35,7 +35,9 @@ sys.path.insert(0, ROOT)
 import rules as R
 from evaluation import DEFAULT_WEIGHTS, make_evaluate
 from search import Searcher
-from baselines.v2.search import Searcher as BaselineSearcher
+import importlib
+BASELINE = os.environ.get('OLD', 'v3')
+BaselineSearcher = importlib.import_module('baselines.%s.search' % BASELINE).Searcher
 
 KEYS = sorted(DEFAULT_WEIGHTS)
 MAX_PLIES = 160
