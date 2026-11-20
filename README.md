@@ -75,3 +75,19 @@ rules favour Black).
 | tse 15 + wp 150 + ka 120 | 19.5 |
 
 v3 validation: 51/80 on 40 openings (depth 3), 14/24 with 0.3 s per move.
+
+## Search enhancements (v4)
+
+v4 = v3 + killer moves + PVS (principal variation search) + LMR (late move
+reductions). In 3 s, LMR reaches one ply deeper in most test positions.
+Search changes must be tested with a time budget (fixed-depth tests cannot
+show that the same time now buys a deeper search).
+
+| 0.5 s per move, 40 games vs baseline v3 | Score /40 | as White /20 | as Black /20 |
+|---|---|---|---|
+| reference (enhancements off = v3 vs v3) | 17.0 | 1.0 | 16.0 |
+| **v4 (killers + PVS + LMR)** | **24.5** | **8.0** | 16.5 |
+
+With a deeper search Black dominates (Ashton rules favour Black); the extra
+ply mostly helps White, which needs longer combinations (e.g. preparing a
+square with two free lines) to escape.

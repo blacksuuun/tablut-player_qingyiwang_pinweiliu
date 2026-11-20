@@ -14,9 +14,11 @@ Optional parameters (all have defaults used during the competition):
     --name NAME      player name sent to the server
     --margin SEC     safety margin subtracted from the timeout (default: auto)
     --verbose        print search information to stderr
+    --no-book        do not use opening_book.json
 """
 import argparse
 import json
+import os
 import socket
 import struct
 import sys
@@ -26,6 +28,7 @@ import rules
 from search import Searcher
 
 DEFAULT_NAME = "aBC4"
+BOOK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'opening_book.json')
 WHITE_PORT = 5800
 BLACK_PORT = 5801
 
@@ -62,6 +65,7 @@ def parse_args(argv):
     p.add_argument('--name', default=DEFAULT_NAME)
     p.add_argument('--margin', type=float, default=None)
     p.add_argument('--verbose', action='store_true')
+    p.add_argument('--no-book', action='store_true', help="ignore opening_book.json")
     args = p.parse_args(argv)
     role = args.role.strip().upper()
     if role not in ('WHITE', 'BLACK'):
@@ -85,11 +89,34 @@ def log(verbose, *a):
         print(*a, file=sys.stderr, flush=True)
 
 
+def load_book(verbose):
+    """Opening book: {position key (hex): [from, to]}; empty if missing/broken."""
+    try:
+        with open(BOOK_FILE) as f:
+            book = json.load(f)
+        log(verbose, "opening book: %d positions" % len(book))
+        return book
+    except (OSError, ValueError):
+        return {}
+
+
+def book_move(book, board, turn):
+    entry = book.get(rules.position_key(board, turn).hex())
+    if not entry:
+        return None
+    try:
+        move = (rules.parse_cell(entry[0]), rules.parse_cell(entry[1]))
+    except (ValueError, IndexError):
+        return None
+    return move if move in rules.gen_moves(board, turn) else None
+
+
 def play(args):
     my_turn = rules.WHITE_TURN if args.role == 'WHITE' else rules.BLACK_TURN
     port = WHITE_PORT if my_turn == rules.WHITE_TURN else BLACK_PORT
     budget = time_budget(args.timeout, args.margin)
     searcher = Searcher(verbose=args.verbose)
+    book = {} if args.no_book else load_book(args.verbose)
     seen_positions = set()
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -111,11 +138,14 @@ def play(args):
                 continue  # opponent's turn: just wait for the next state
 
             t0 = time.time()
-            move = None
-            try:
-                move = searcher.choose_move(board, turn, budget, seen_positions)
-            except Exception as e:  # never lose because of a bug in the search
-                log(args.verbose, "search error:", repr(e))
+            move = book_move(book, board, turn)
+            if move is not None:
+                log(args.verbose, "book move")
+            else:
+                try:
+                    move = searcher.choose_move(board, turn, budget, seen_positions)
+                except Exception as e:  # never lose because of a bug in the search
+                    log(args.verbose, "search error:", repr(e))
             if move is None:
                 legal = rules.gen_moves(board, turn)
                 if not legal:

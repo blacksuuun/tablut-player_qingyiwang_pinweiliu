@@ -7,10 +7,11 @@ Engine-vs-engine match to measure whether a change is an improvement.
             e.g.  --set king_attacker=100 black_blocker=50
             (names: see DEFAULT_WEIGHTS in evaluation.py)
   --depth   fixed search depth instead of a time budget (reproducible results)
+  --opts    switch search enhancements of the NEW player, e.g. --opts lmr=0
 
 Plays NEW (the current code in the repository root: search.py +
 evaluation.py) against OLD, a frozen copy of a previous version stored in
-baselines/<name>/ (default: baselines/v3). Choose another baseline with
+baselines/<name>/ (default: baselines/v4). Choose another baseline with
 the environment variable OLD, e.g.  OLD=v2 python3 tests/match.py 8 0.3
 To freeze a new baseline, copy rules.py, evaluation.py and search.py into
 baselines/<name>/ and make their imports relative (from .rules import ...).
@@ -32,7 +33,7 @@ import rules as R
 from search import Searcher as NewSearcher
 from evaluation import DEFAULT_WEIGHTS, make_evaluate
 
-OLD_NAME = os.environ.get('OLD', 'v3')
+OLD_NAME = os.environ.get('OLD', 'v4')
 OldSearcher = importlib.import_module('baselines.%s.search' % OLD_NAME).Searcher
 
 MAX_PLIES = 160
@@ -48,12 +49,12 @@ def make_opening(seed, plies=2):
 
 
 def play(args):
-    seed, new_is_white, budget, overrides, depth = args
+    seed, new_is_white, budget, overrides, depth, opts = args
     board, turn = make_opening(seed)
     max_depth = depth if depth else 64
     if depth:
         budget = 10 ** 6  # depth limit, not time, stops the search
-    new = NewSearcher(max_depth=max_depth, eval_fn=make_evaluate(overrides))
+    new = NewSearcher(max_depth=max_depth, eval_fn=make_evaluate(overrides), **opts)
     old = OldSearcher(max_depth=max_depth)
     players = {R.WHITE_TURN: new if new_is_white else old,
                R.BLACK_TURN: old if new_is_white else new}
@@ -92,7 +93,10 @@ def parse_cli(argv):
     p.add_argument('workers', nargs='?', type=int, default=2)
     p.add_argument('--set', nargs='*', default=[], metavar='KEY=VALUE')
     p.add_argument('--depth', type=int, default=0)
+    p.add_argument('--opts', nargs='*', default=[], metavar='FLAG=0/1',
+                   help="search switches of the NEW player, e.g. --opts lmr=0 pvs=1 killers=1")
     a = p.parse_args(argv)
+    a.opts = {k: bool(int(v)) for k, v in (x.split('=') for x in a.opts)}
     overrides = {}
     for item in a.set:
         k, v = item.split('=')
@@ -105,10 +109,10 @@ def parse_cli(argv):
 if __name__ == '__main__':
     a, overrides = parse_cli(sys.argv[1:])
     n, budget, workers = a.n, a.budget, a.workers
-    jobs = [(s, w, budget, overrides, a.depth) for s in range(n) for w in (True, False)]
+    jobs = [(s, w, budget, overrides, a.depth, a.opts) for s in range(n) for w in (True, False)]
     total = 0.0
     as_white = as_black = 0.0
-    print("NEW weights changed:", overrides or "none",
+    print("NEW weights changed:", overrides or "none", "| search opts:", a.opts or "default",
           "| search:", ("depth %d" % a.depth) if a.depth else ("%.2fs per move" % budget), flush=True)
     with Pool(workers) as pool:
         for seed, nw, result, plies, sc in pool.imap_unordered(play, jobs):

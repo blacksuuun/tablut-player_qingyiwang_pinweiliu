@@ -1,8 +1,15 @@
 """
-Iterative-deepening negamax with alpha-beta pruning, transposition table,
-move ordering (TT move, captures / king escapes, history heuristic) and a
-hard time limit. The best move of the last completed depth is always kept,
-so the player can answer in time whatever happens.
+Iterative-deepening negamax with alpha-beta pruning and a hard time limit.
+The best move of the last completed depth is always kept, so the player can
+answer in time whatever happens.
+
+Enhancements (each can be switched off for experiments):
+  * transposition table (always on)
+  * move ordering: TT move, captures / king escapes, killer moves, history
+  * PVS  (principal variation search): after the first move, the others are
+         searched with a null window and re-searched only if they look better
+  * LMR  (late move reductions): late, quiet moves are first searched with a
+         reduced depth; if they turn out good they are re-searched normally
 """
 import time
 
@@ -15,6 +22,20 @@ WIN_SCORE = 1000000
 INF = 10 ** 9
 EXACT, LOWER, UPPER = 0, 1, 2
 TT_MAX_SIZE = 1500000
+MAX_PLY = 128
+
+# ordering bonuses
+TT_BONUS = 100000000
+ESCAPE_BONUS = 10000000
+CAPTURE_BONUS = 1000000
+KILLER1_BONUS = 900000
+KILLER2_BONUS = 800000
+KING_MOVE_BONUS = 5000
+KING_ATTACK_BONUS = 3000
+
+# LMR parameters
+LMR_MIN_DEPTH = 3     # only reduce when remaining depth >= this
+LMR_FULL_MOVES = 4    # the first N moves are always searched at full depth
 
 
 class TimeUp(Exception):
@@ -22,14 +43,21 @@ class TimeUp(Exception):
 
 
 class Searcher:
-    def __init__(self, max_depth=64, verbose=False, eval_fn=None):
+    def __init__(self, max_depth=64, verbose=False, eval_fn=None,
+                 killers=True, pvs=True, lmr=True):
         self.evaluate = eval_fn or evaluate
         self.max_depth = max_depth
         self.verbose = verbose
+        self.use_killers = killers
+        self.use_pvs = pvs
+        self.use_lmr = lmr
         self.tt = {}
         self.history = {}
+        self.killers = [[None, None] for _ in range(MAX_PLY)]
         self.nodes = 0
         self.deadline = 0.0
+        self.last_depth = 0
+        self.last_nodes = 0
 
     # ------------------------------------------------------------------
     def choose_move(self, board, turn, time_budget, game_history=()):
@@ -45,14 +73,16 @@ class Searcher:
         self.seen = set(game_history)
         if len(self.tt) > TT_MAX_SIZE:
             self.tt.clear()
-        # age the history heuristic
+        # age the history heuristic, reset killers
         for m in list(self.history):
             self.history[m] //= 4
+        self.killers = [[None, None] for _ in range(MAX_PLY)]
 
         moves = gen_moves(board, turn)
         if not moves:
             return None
         best_move = moves[0]
+        self.last_depth = 0
         if len(moves) == 1:
             return best_move
 
@@ -62,19 +92,23 @@ class Searcher:
             if res is not None:
                 return m
 
-        root_scores = {m: 0 for m in moves}
-        root_moves = self._order(board, turn, moves, None)
+        root_moves, _ = self._order(board, turn, moves, None, 0)
         completed_depth = 0
         try:
             for depth in range(1, self.max_depth + 1):
                 alpha, beta = -INF, INF
                 best_this_iter = None
                 best_score = -INF
-                new_scores = {}
-                for m in root_moves:
+                scores = {}
+                for i, m in enumerate(root_moves):
                     child, res = apply_move(board, m, turn)
-                    score = self._child_score(child, res, turn, depth, -beta, -alpha, 1)
-                    new_scores[m] = score
+                    if i == 0 or not self.use_pvs:
+                        score = self._child_score(child, res, turn, depth, -beta, -alpha, 1)
+                    else:
+                        score = self._child_score(child, res, turn, depth, -alpha - 1, -alpha, 1)
+                        if alpha < score < beta:
+                            score = self._child_score(child, res, turn, depth, -beta, -alpha, 1)
+                    scores[m] = score
                     if score > best_score:
                         best_score = score
                         best_this_iter = m
@@ -84,9 +118,9 @@ class Searcher:
                     if score > alpha:
                         alpha = score
                 completed_depth = depth
-                root_scores = new_scores
                 best_move = best_this_iter
-                root_moves = sorted(root_moves, key=lambda mv: -root_scores[mv])
+                # best move first, the others by score
+                root_moves = sorted(root_moves, key=lambda mv: (mv != best_move, -scores[mv]))
                 if self.verbose:
                     print("depth %d best %s score %d nodes %d time %.2f" % (
                         depth, best_move, best_score, self.nodes, time.time() - start))
@@ -140,18 +174,34 @@ class Searcher:
         if not moves:
             return -WIN_SCORE + ply  # cannot move: lose
 
-        moves = self._order(board, turn, moves, tt_move)
+        moves, tactical = self._order(board, turn, moves, tt_move, ply)
+        opp = BLACK_TURN if turn == WHITE_TURN else WHITE_TURN
         best = -INF
         best_m = moves[0]
+        use_pvs = self.use_pvs
+        use_lmr = self.use_lmr and depth >= LMR_MIN_DEPTH
         self.seen.add(key)
         try:
-            for m in moves:
+            for i, m in enumerate(moves):
                 child, res = apply_move(board, m, turn)
                 if res is not None:
                     score = WIN_SCORE - ply - 1
-                else:
-                    opp = BLACK_TURN if turn == WHITE_TURN else WHITE_TURN
+                elif i == 0 or not use_pvs:
                     score = -self._negamax(child, opp, depth - 1, -beta, -alpha, ply + 1)
+                else:
+                    # LMR: late quiet moves get a reduced-depth null-window search first
+                    reduction = 0
+                    if use_lmr and i >= LMR_FULL_MOVES and m not in tactical:
+                        reduction = 1 if i < 12 else 2
+                    if reduction:
+                        score = -self._negamax(child, opp, depth - 1 - reduction,
+                                               -alpha - 1, -alpha, ply + 1)
+                    else:
+                        score = alpha + 1  # force the normal null-window search
+                    if score > alpha:
+                        score = -self._negamax(child, opp, depth - 1, -alpha - 1, -alpha, ply + 1)
+                        if alpha < score < beta:
+                            score = -self._negamax(child, opp, depth - 1, -beta, -alpha, ply + 1)
                 if score > best:
                     best = score
                     best_m = m
@@ -159,6 +209,11 @@ class Searcher:
                     alpha = score
                 if alpha >= beta:
                     self.history[m] = self.history.get(m, 0) + depth * depth
+                    if self.use_killers and m not in tactical and ply < MAX_PLY:
+                        k = self.killers[ply]
+                        if k[0] != m:
+                            k[1] = k[0]
+                            k[0] = m
                     break
         finally:
             self.seen.discard(key)
@@ -173,38 +228,55 @@ class Searcher:
         return best
 
     # ------------------------------------------------------------------
-    def _order(self, board, turn, moves, tt_move):
+    def _order(self, board, turn, moves, tt_move, ply):
+        """Return (ordered moves, set of tactical moves)."""
         hist_get = self.history.get
         white = turn == WHITE_TURN
-        enemy = BLACK if white else WHITE
         is_camp = IS_CAMP
         is_edge = IS_EDGE
         neigh2 = NEIGH2
+        if self.use_killers and ply < MAX_PLY:
+            k1, k2 = self.killers[ply]
+        else:
+            k1 = k2 = None
         scored = []
         append = scored.append
+        tactical = set()
         for m in moves:
             s, t = m
             sc = hist_get(m, 0)
+            tac = False
             if m == tt_move:
-                sc += 100000000
+                sc += TT_BONUS
             if white:
                 if board[s] == KING:
-                    sc += 5000
+                    sc += KING_MOVE_BONUS
+                    tac = True  # king moves are never reduced
                     if is_edge[t]:
-                        sc += 10000000
+                        sc += ESCAPE_BONUS
                 for n, beyond in neigh2[t]:
                     if board[n] == BLACK and beyond >= 0 and beyond != s:
                         bv = board[beyond]
                         if bv == WHITE or bv == KING or beyond == THRONE or is_camp[beyond]:
-                            sc += 100000
+                            sc += CAPTURE_BONUS
+                            tac = True
             else:
                 for n, beyond in neigh2[t]:
                     v = board[n]
                     if v == WHITE:
                         if beyond >= 0 and beyond != s and (board[beyond] == BLACK or beyond == THRONE or is_camp[beyond]):
-                            sc += 100000
+                            sc += CAPTURE_BONUS
+                            tac = True
                     elif v == KING:
-                        sc += 3000
+                        sc += KING_ATTACK_BONUS
+                        tac = True
+            if not tac:
+                if m == k1:
+                    sc += KILLER1_BONUS
+                elif m == k2:
+                    sc += KILLER2_BONUS
+            if tac:
+                tactical.add(m)
             append((sc, m))
         scored.sort(reverse=True)
-        return [m for _, m in scored]
+        return [m for _, m in scored], tactical
